@@ -1,5 +1,5 @@
 import io, os, time
-
+import json
 import pyautogui
 # from google.cloud import vision
 from selenium import webdriver
@@ -10,37 +10,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from winreg import *
-
-def re_captcha():
-    """Detects text in the file."""
-    client = vision.ImageAnnotatorClient()
-
-    # Open image using the pillow package
-    img = pyautogui.screenshot()
-    # img.save(PATH)
-    # initialiaze io to_bytes converter
-    img_byte_arr = io.BytesIO()
-    # define quality of saved array
-    img.save(img_byte_arr, format='PNG', subsampling=0, quality=100)
-    # converts image array to bytesarray
-    content = img_byte_arr.getvalue()
-
-    image = vision.Image(content=content)
-
-    response = client.text_detection(image=image)
-    texts = response.text_annotations
-
-    for text in texts:
-        txt = text.description
-        if txt.isnumeric() and len(txt) == 5:
-            return txt
-
-    if response.error.message:
-        raise Exception(
-            "{}\nFor more info on error messages, check: "
-            "https://cloud.google.com/apis/design/errors".format(response.error.message)
-        )
-
 
 class AutoDownloadTPbank:
     def __init__(self, user_name, pass_word):
@@ -57,6 +26,9 @@ class AutoDownloadTPbank:
 
         self.runDownload()
 
+    def timeoutToken(self,):
+        while True:
+            element = '//*[@id="btn-step1"]/button[2]'
     def loadCompleted(self, locator, timeout):
         """ check website load complete """
         try:
@@ -94,63 +66,6 @@ class AutoDownloadTPbank:
         except Exception:
             print("can't find %s, try run javaScript" % id_btn)
 
-    def get_captcha(self):
-        captcha = None
-        captcha_image = '//div[@class="input-group-slot-inner"]/img'
-
-        flag = False
-
-        while not captcha:
-            wait = WebDriverWait(self.driver, 20)
-            wait.until(EC.visibility_of_element_located((By.XPATH, captcha_image)))
-            captcha = re_captcha()
-
-            if not captcha:
-                refresh_captcha_btn = '//a[@class="ubtn ubg-secondary ubtn-sm ripple no-m"]'
-                self.clickElement(refresh_captcha_btn)
-            else:
-                break
-        return captcha
-
-    def deleteAllFiles(self):
-        """ delete all file in folder """
-        for the_file in os.listdir(self.dir_download):
-            file_path = os.path.join(self.dir_download, the_file)
-            try:
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                print(e)
-
-    def download_wait(self, directory, timeout, nfiles=None):
-        """
-        Wait for downloads to finish with a specified timeout.
-
-        Args
-        ----
-        directory : str
-            The path to the folder where the files will be downloaded.
-        timeout : int
-            How many seconds to wait until timing out.
-        nfiles : int, defaults to None
-            If provided, also wait for the expected number of files.
-
-        """
-        seconds = 0
-        dl_wait = True
-        while dl_wait and seconds < timeout:
-            time.sleep(1)
-            dl_wait = False
-            files = os.listdir(directory)
-            if nfiles and len(files) != nfiles:
-                dl_wait = True
-
-            for fname in files:
-                if fname.endswith('.crdownload'):
-                    dl_wait = True
-
-            seconds += 1
-        return seconds
 
     # Login to TPbank
     def loginTPbank(self):
@@ -171,45 +86,60 @@ class AutoDownloadTPbank:
             # captcha_input.send_keys(captcha)
             button.click()
 
+            #first login...
+            first_login_element = '//*[@id="btn-step1"]/button[2]'
+            if self.loadCompleted(first_login_element,20):
+                self.clickElement(first_login_element)
+            print("login success")
         except TimeoutException:
             print("Login TPbank timeout")
             time.sleep(5)
             return
         except:
-            time.sleep(15)
+            time.sleep(10)
             print("has been login TPbank - can't find element")
 
     def runDownload(self):
         """ start download TPbank Transaction """
         self.loginTPbank()
 
-        account_detail_btn = '//a[@class="list-link-item has-link-arrow tk"]/div/div[@class="item-link-arrow ' \
-                             'ubg-white-2"] '
+        
+        # self.timeoutToken()
+
+        account_detail_btn = '//*[@id="instruction-4"]/app-acc-slider/div/div[1]/div[1]/div/div[4]/div[2]/div/div'#click query button
         self.clickElement(account_detail_btn)
 
         select = '(//span[@class="select2-selection__rendered"])[2]'
         self.clickElement(select)
 
-        other_option = '//ul[@class="select2-results__options"]/li[3]'
-        self.clickElement(other_option)
+        # find_transaction_data = '//*[@id="content-transaction"]/li[1]/app-acc-trans-item/app-date/div'
+        # self.clickElement(find_transaction_data)
 
-        self.driver.execute_script("document.getElementById('TimeRange').removeAttribute('readonly')")
+        all_transaction = self.driver.find_element(By.CLASS_NAME, 'transaction-content')
+    
+        each = all_transaction.find_elements(By.TAG_NAME, 'li')
+        table_data = []
+        with open('extract_data.txt', mode='w', encoding='utf-8') as log_file:
+            log_file.write(' ' + '\n')
 
-        print("search_btn")
-        search_btn = '//a[@class="ubtn ubg-primary ubtn-md ripple"]/span'
-        self.clickElement(search_btn)
-
-        self.deleteAllFiles()
-
-        print("excel_btn")
-        excel_btn = '//a[@class="ubtn ubg-secondary ubtn-md ripple"]'
-        self.clickElement(excel_btn)
-
-        time.sleep(2)
-        wait_time = self.download_wait(self.dir_download, 5)
-        time.sleep(wait_time)
-
-        self.driver.quit()
+        for row in each:
+            ActionChains(self.driver).click(row).perform()
+            time.sleep(4)
+            modal = self.driver.find_element(By.CLASS_NAME, 'modal-body')
+            modal_content = modal.find_element(By.CLASS_NAME, 'content')
+            modal_transaction_info = modal_content.find_element(By.CLASS_NAME, 'transaction-info')
+            info_tran = modal_transaction_info.find_elements(By.CLASS_NAME,'line-right')
+            data = [tran_text.text for tran_text in info_tran]
+            table_data.append(data)
+            
+            with open('extract_data.txt', mode='a', encoding='utf-8') as log_file:
+                log_file.write(' '.join(data) + '\n')
+            close_btn = '/html/body/app-root/main-component/div/div[2]/div/div/div[1]/div/app-account-transaction/div/div/div[2]/app-acc-trans-search/div[1]/app-modal[1]/div/div/div/div/div[1]/img'
+            self.clickElement(close_btn)
+            transaction_info = '/html/body/app-root/main-component/div/div[2]/div/div/div[1]/div/app-account-transaction/div/div/div[2]/app-acc-trans-search/div[1]/app-modal[1]/div/div/div/div/div[4]'
+            print(data)
+            print('----------------------------------')
+        time.sleep(10)
 
     def isLoginError(self):
         xpath_element = '//*[@id="maincontent"]/ng-component/div[1]/div/div[3]/div/div/div/app-login-form/div/div/div[4]/p'
@@ -220,3 +150,9 @@ class AutoDownloadTPbank:
         if login_error == 'Mã kiểm tra không chính xác. Quý khách vui lòng kiểm tra lại.':
             return True
         return False
+
+if __name__ == "__main__":
+    file_name = f'.\\setting.json'
+    with open(file_name) as file:
+        info = json.load(file)
+    AutoDownloadTPbank(info['USER_NAME'],info['PASSWORD'])
