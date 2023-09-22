@@ -140,6 +140,7 @@ class AutoDownloadTPbank:
             print(data)
             print('----------------------------------')
         time.sleep(10)
+        self.driver.quit()
 
     def isLoginError(self):
         xpath_element = '//*[@id="maincontent"]/ng-component/div[1]/div/div[3]/div/div/div/app-login-form/div/div/div[4]/p'
